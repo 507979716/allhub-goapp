@@ -701,6 +701,16 @@ SR-1、SR-2 与 SR-4 已接入源码，小型动漫 CNN 也包含在本轮；SR-
 
 Actions 分别传入默认参数与 `--all-sources` 构建两版，Flutter 和 Go 回归也覆盖两种编译配置。产物保留 14 天，不自动创建 GitHub Release。首次平台构建结果以实际 Actions 输出为准。
 
+手动运行（Actions → **Build app packages** → **Run workflow**）可选：
+
+| 选项 | 默认 | 作用 |
+| --- | --- | --- |
+| `edition` | `all` | `zhenguojian` 只构建全站源版，`hongguojian` 只构建红果版 |
+| `skip_checks` | 关 | 跳过格式、静态检查和回归直接构建；产物仅为未验证开发快照 |
+| `ios` | 关 | 同时构建 iOS 未签名包 |
+
+推送、标签和 PR 触发时仍先检查再构建两版三平台。
+
 Android 正式发布持续使用同一签名并递增构建号，在仓库 Secrets 配置：
 
 | Secret | 内容 |
