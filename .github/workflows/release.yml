@@ -45,8 +45,8 @@ jobs:
             exit 1
           fi
           echo "id=$RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "number=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq .run_number)" >> "$GITHUB_OUTPUT"
-          echo "sha=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq .head_sha)" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID" \
+            --jq '"number=\(.run_number)", "sha=\(.head_sha)", "branch=\(.head_branch)"' >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.run.outputs.sha }}
@@ -66,7 +66,17 @@ jobs:
           RUN_ID: ${{ steps.run.outputs.id }}
           RUN_NUMBER: ${{ steps.run.outputs.number }}
           SHA: ${{ steps.run.outputs.sha }}
+          BRANCH: ${{ steps.run.outputs.branch }}
         run: |
+          workflows() {
+            gh api "repos/$GH_REPO/contents/.github/workflows?ref=$1" --jq '[.[] | {name, sha}] | sort_by(.name)'
+          }
+          target="$SHA"
+          tip="$(gh api "repos/$GH_REPO/branches/$BRANCH" --jq .commit.sha 2>/dev/null || true)"
+          if [ -n "$tip" ] && [ "$tip" != "$SHA" ] && [ "$(workflows "$SHA")" != "$(workflows "$tip")" ]; then
+            target="$tip"
+            echo "构建提交的 workflow 与 $BRANCH 最新提交不同，标签改为指向 $tip"
+          fi
           version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n 1)"
           if [ -z "$version" ]; then
             echo "pubspec.yaml 缺少版本号"
@@ -96,7 +106,8 @@ jobs:
           未完成集中验证的开发快照，仅供测试安装，不是正式发布版本。
 
           - 构建运行：https://github.com/${GH_REPO}/actions/runs/${RUN_ID}（#${RUN_NUMBER}）
-          - 源码提交：${SHA}
+          - 源码提交：${SHA}（安装包由此提交构建）
+          - 标签位置：${target}
           - Android：按设备架构选择 APK，常见手机使用 arm64-v8a；未配置固定签名 Secrets 时为预览签名，与其他构建的安装包不能相互覆盖升级。
           - iOS：未签名 .app 压缩包，需自行签名后侧载，不能直接安装。
           - 通过镜像或加速地址下载后，用 SHA256SUMS.txt 校验文件。
@@ -104,7 +115,7 @@ jobs:
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release upload "$tag" release/* --clobber
           else
-            gh release create "$tag" release/* --target "$SHA" --prerelease \
+            gh release create "$tag" release/* --target "$target" --prerelease \
               --title "$label $version 开发快照（构建 #$RUN_NUMBER）" --notes-file notes.md
           fi
           url="$(gh release view "$tag" --json url --jq .url)"
