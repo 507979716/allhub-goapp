@@ -103,8 +103,15 @@ def main():
         for symbol in ['_DuanjuRequest', '_DuanjuFree']:
             if symbol not in symbols:
                 raise SystemExit('iOS 包缺少 FFI 入口：' + symbol)
-        destination = output / f'{variant.slug}-{version}-ios-unsigned-app.zip'
-        run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(application), str(destination)])
+        staging = root / 'build' / 'ios' / 'unsigned-ipa'
+        if staging.exists():
+            shutil.rmtree(staging)
+        payload = staging / 'Payload'
+        payload.mkdir(parents=True)
+        run(['ditto', str(application), str(payload / application.name)])
+        destination = output / f'{variant.slug}-{version}-ios-unsigned.ipa'
+        destination.unlink(missing_ok=True)
+        run(['ditto', '-c', '-k', '--norsrc', '--keepParent', str(payload), str(destination)])
         artifacts.append(destination)
     if not artifacts:
         raise SystemExit('未生成 iOS 安装包。')
