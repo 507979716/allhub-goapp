@@ -699,7 +699,7 @@ SR-1、SR-2 与 SR-4 已接入源码，小型动漫 CNN 也包含在本轮；SR-
 | `hongguojian-windows` | `zhenguojian-windows` | 完整 ZIP 和 SHA256；从解压包检查原生核心、FFprobe、换封装及播放器启动 |
 | `hongguojian-ios-unsigned` | `zhenguojian-ios-unsigned` | 未签名 `.app` ZIP 和 SHA256，不能直接当已签名 IPA 安装 |
 
-Actions 分别传入默认参数与 `--all-sources` 构建两版，Flutter 和 Go 回归也覆盖两种编译配置。产物保留 14 天，不自动创建 GitHub Release。首次平台构建结果以实际 Actions 输出为准。
+Actions 分别传入默认参数与 `--all-sources` 构建两版，Flutter 和 Go 回归也覆盖两种编译配置。产物保留 14 天；推送、标签和 PR 不自动创建 GitHub Release。首次平台构建结果以实际 Actions 输出为准。
 
 手动运行（Actions → **Build app packages** → **Run workflow**）可选：
 
@@ -708,8 +708,11 @@ Actions 分别传入默认参数与 `--all-sources` 构建两版，Flutter 和 G
 | `edition` | `all` | `zhenguojian` 只构建全站源版，`hongguojian` 只构建红果版 |
 | `skip_checks` | 关 | 跳过格式、静态检查和回归直接构建；产物仅为未验证开发快照 |
 | `ios` | 关 | 同时构建 iOS 未签名包 |
+| `release` | 关 | 构建结束后把成功平台的产物发布为预发布版本 |
 
 推送、标签和 PR 触发时仍先检查再构建两版三平台。
+
+已完成的构建可运行 **Publish release** 补发：`run_id` 填构建运行页地址 `runs/` 后的数字，留空取最近一次仍有产物的手动构建，产物过期后需重新构建。发布为预发布版本，标签 `snapshot-版本-run构建序号`，版本号中的 `+` 在标签和文件名里写作 `-`；附带全部安装包与合并的 `SHA256SUMS.txt`，重复发布同一构建时覆盖同名文件。Release 文件可公开下载，经第三方加速地址下载后请核对 SHA256。
 
 Android 正式发布持续使用同一签名并递增构建号，在仓库 Secrets 配置：
 

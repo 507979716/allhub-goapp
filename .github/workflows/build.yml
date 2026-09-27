@@ -20,6 +20,10 @@ on:
         description: 同时构建 iOS 未签名包
         type: boolean
         default: false
+      release:
+        description: 构建完成后将成功的产物发布为 GitHub 预发布版本
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -229,3 +233,13 @@ jobs:
           path: dist/ios/*
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    needs: [plan, android, windows, ios]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.release && (needs.android.result == 'success' || needs.windows.result == 'success' || needs.ios.result == 'success') }}
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release.yml
+    with:
+      run_id: ${{ github.run_id }}
