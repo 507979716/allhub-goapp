@@ -5,6 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'models.dart';
+import 'playback_preferences.dart';
+import 'video_enhancement.dart';
+import 'video_enhancement_preferences.dart';
+import 'video_enhancement_settings.dart';
 import 'remote_widgets.dart';
 import 'widgets.dart';
 
@@ -14,6 +18,7 @@ class TelevisionControls extends StatefulWidget {
     required this.player,
     required this.title,
     required this.enabled,
+    required this.showOnPlaybackReady,
     required this.onTogglePlayback,
     required this.onSeek,
     required this.onPrevious,
@@ -21,10 +26,12 @@ class TelevisionControls extends StatefulWidget {
     required this.onEpisodes,
     required this.onSettings,
     required this.onBack,
+    this.enhancement,
   });
   final Player player;
   final String title;
   final bool enabled;
+  final bool showOnPlaybackReady;
   final VoidCallback onTogglePlayback;
   final ValueChanged<int> onSeek;
   final VoidCallback? onPrevious;
@@ -32,6 +39,7 @@ class TelevisionControls extends StatefulWidget {
   final Future<void> Function() onEpisodes;
   final Future<void> Function() onSettings;
   final VoidCallback onBack;
+  final VideoEnhancementController? enhancement;
 
   @override
   State<TelevisionControls> createState() => _TelevisionControlsState();
@@ -53,9 +61,11 @@ class _TelevisionControlsState extends State<TelevisionControls> {
   @override
   void initState() {
     super.initState();
+    _visible = widget.showOnPlaybackReady;
     for (final stream in [
       widget.player.stream.position,
       widget.player.stream.duration,
+      widget.player.stream.buffer,
       widget.player.stream.playing,
       widget.player.stream.buffering,
     ]) {
@@ -76,14 +86,27 @@ class _TelevisionControlsState extends State<TelevisionControls> {
         }
       }),
     );
-    if (widget.enabled) _show();
+    if (widget.enabled) {
+      if (widget.showOnPlaybackReady || !widget.player.state.playing) {
+        _show();
+      } else {
+        _visible = false;
+        _focus(_surface);
+      }
+    }
   }
 
   @override
   void didUpdateWidget(covariant TelevisionControls oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.enabled && !oldWidget.enabled) {
-      _show();
+      if (widget.showOnPlaybackReady || !widget.player.state.playing) {
+        _show();
+      } else {
+        setState(() => _visible = false);
+        _hideTimer?.cancel();
+        _focus(_surface);
+      }
     } else if (!widget.enabled) {
       _hideTimer?.cancel();
     }
@@ -307,14 +330,28 @@ class _TelevisionControlsState extends State<TelevisionControls> {
                         onPressed: widget.onTogglePlayback,
                         child: Column(
                           children: [
-                            LinearProgressIndicator(
-                              value: duration > 0
-                                  ? (position / duration).clamp(0, 1)
-                                  : 0,
-                              minHeight: 5,
-                              backgroundColor: Colors.white24,
+                            Stack(
+                              children: [
+                                LinearProgressIndicator(
+                                  value: duration > 0
+                                      ? (state.buffer.inMilliseconds /
+                                                1000 /
+                                                duration)
+                                            .clamp(0, 1)
+                                      : 0,
+                                  minHeight: 5,
+                                  color: Colors.white38,
+                                  backgroundColor: Colors.white24,
+                                ),
+                                LinearProgressIndicator(
+                                  value: duration > 0
+                                      ? (position / duration).clamp(0, 1)
+                                      : 0,
+                                  minHeight: 5,
+                                  backgroundColor: Colors.transparent,
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 10),
                             Row(
                               children: [
                                 Text(
@@ -371,6 +408,30 @@ class _TelevisionControlsState extends State<TelevisionControls> {
                               onPressed: () =>
                                   _openPanel(widget.onEpisodes, _episodes),
                             ),
+                            if (widget.enhancement != null)
+                              AnimatedBuilder(
+                                animation: widget.enhancement!,
+                                builder: (_, _) {
+                                  final enhancement = widget.enhancement!;
+                                  if (!enhancement.canCompare) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return RemoteButton(
+                                    key: const ValueKey(
+                                      'tv-enhancement-compare',
+                                    ),
+                                    label: enhancement.comparing
+                                        ? '恢复增强'
+                                        : '原画对比',
+                                    icon: Icons.compare_rounded,
+                                    onPressed: () {
+                                      unawaited(enhancement.toggleCompare());
+                                      _focus(_play);
+                                      _scheduleHide();
+                                    },
+                                  );
+                                },
+                              ),
                             RemoteButton(
                               key: const ValueKey('tv-settings'),
                               label: '播放设置',
@@ -444,9 +505,20 @@ class TelevisionEpisodeDialog extends StatelessWidget {
 }
 
 class TelevisionPlaybackSetting {
-  const TelevisionPlaybackSetting({this.speed, this.quality});
+  const TelevisionPlaybackSetting({
+    this.speed,
+    this.quality,
+    this.autoAdvance,
+    this.danmaku,
+    this.preload,
+    this.enhancement,
+  });
   final double? speed;
   final int? quality;
+  final bool? autoAdvance;
+  final bool? danmaku;
+  final bool? preload;
+  final VideoEnhancementPreferences? enhancement;
 }
 
 class TelevisionSettingsDialog extends StatelessWidget {
@@ -457,12 +529,30 @@ class TelevisionSettingsDialog extends StatelessWidget {
     required this.qualities,
     required this.favorite,
     required this.onFavorite,
+    this.autoAdvance = true,
+    this.danmaku = true,
+    this.showDanmaku = false,
+    this.danmakuStatus = '',
+    this.onRetryDanmaku,
+    this.preload = true,
+    this.preloadStatus = '',
+    this.enhancement,
+    this.onCompareEnhancement,
   });
   final double speed;
   final int quality;
   final List<int> qualities;
   final bool favorite;
   final VoidCallback onFavorite;
+  final bool autoAdvance;
+  final bool danmaku;
+  final bool showDanmaku;
+  final String danmakuStatus;
+  final VoidCallback? onRetryDanmaku;
+  final bool preload;
+  final String preloadStatus;
+  final VideoEnhancementController? enhancement;
+  final VoidCallback? onCompareEnhancement;
 
   @override
   Widget build(BuildContext context) => AlertDialog(
@@ -480,7 +570,7 @@ class TelevisionSettingsDialog extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final value in const [.75, 1.0, 1.25, 1.5, 2.0])
+                for (final value in playbackSpeeds)
                   RemoteButton(
                     key: ValueKey('tv-speed-$value'),
                     label: '${value}x',
@@ -515,6 +605,55 @@ class TelevisionSettingsDialog extends StatelessWidget {
                   ),
               ],
             ),
+            const SizedBox(height: 20),
+            if (enhancement != null)
+              VideoEnhancementSettings(
+                controller: enhancement!,
+                television: true,
+                onChanged: (value) => Navigator.pop(
+                  context,
+                  TelevisionPlaybackSetting(enhancement: value),
+                ),
+                onCompare: onCompareEnhancement ?? () {},
+              ),
+            if (showDanmaku) ...[
+              RemoteButton(
+                key: const ValueKey('tv-danmaku-enabled'),
+                label: danmaku ? '弹幕：开' : '弹幕：关',
+                onPressed: () => Navigator.pop(
+                  context,
+                  TelevisionPlaybackSetting(danmaku: !danmaku),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(danmakuStatus, style: const TextStyle(fontSize: 14)),
+              if (onRetryDanmaku != null)
+                RemoteButton(
+                  key: const ValueKey('tv-danmaku-retry'),
+                  label: '重试弹幕',
+                  onPressed: onRetryDanmaku,
+                ),
+              const SizedBox(height: 20),
+            ],
+            RemoteButton(
+              key: const ValueKey('tv-auto-advance'),
+              label: autoAdvance ? '自动连播：开' : '自动连播：关',
+              onPressed: () => Navigator.pop(
+                context,
+                TelevisionPlaybackSetting(autoAdvance: !autoAdvance),
+              ),
+            ),
+            const SizedBox(height: 16),
+            RemoteButton(
+              key: const ValueKey('tv-preload-enabled'),
+              label: preload ? '下一集预加载：开' : '下一集预加载：关',
+              onPressed: () => Navigator.pop(
+                context,
+                TelevisionPlaybackSetting(preload: !preload),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(preloadStatus, style: const TextStyle(fontSize: 14)),
             const SizedBox(height: 20),
             RemoteButton(
               label: favorite ? '取消追剧' : '加入追剧',

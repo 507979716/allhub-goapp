@@ -1,9 +1,14 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'local_profiles.dart';
 import 'local_store.dart';
 import 'models.dart';
 import 'app_build.dart';
+import 'remote_widgets.dart';
 
 class ProfilesScreen extends StatefulWidget {
   const ProfilesScreen({super.key, required this.store, this.locked = false});
@@ -16,6 +21,75 @@ class ProfilesScreen extends StatefulWidget {
 class _ProfilesScreenState extends State<ProfilesScreen> {
   bool _busy = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    ensureTelevisionFocus(context);
+  }
+
+  Future<void> _recover({bool export = false, bool reload = false}) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      if (reload) {
+        await widget.store.reload();
+      } else if (export) {
+        await FilePicker.saveFile(
+          fileName: '$appSlug-recovery.json',
+          bytes: Uint8List.fromList(
+            utf8.encode(widget.store.exportRecoveryData()),
+          ),
+          mimeType: 'application/json',
+        );
+      } else {
+        final file = await FilePicker.pickFile(
+          type: FileType.custom,
+          allowedExtensions: ['json'],
+        );
+        if (file == null || !mounted) return;
+        final size = await file.length();
+        if (size == null || size > 8 * 1024 * 1024) {
+          throw const FormatException('备份文件过大或无法读取');
+        }
+        final content = utf8.decode(await file.readAsBytes());
+        widget.store.validateBackup(content);
+        if (!mounted) return;
+        final accepted = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('从备份恢复用户与记录？'),
+            content: const Text(
+              '将使用这份备份替换损坏的用户配置、追剧、观看记录和偏好。建议先导出原始配置；已下载视频保留。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('继续恢复'),
+              ),
+            ],
+          ),
+        );
+        if (accepted != true || !mounted) return;
+        final pin = await showDialog<String>(
+          context: context,
+          builder: (_) => const _PasswordDialog(name: '管理员（原配置或备份中的密码）'),
+        );
+        if (pin == null || !mounted) return;
+        await widget.store.recoverBackup(content, pin: pin);
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _switch(LocalProfile profile) async {
     String pin = '';
@@ -51,6 +125,20 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _setForceLogin(bool value) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.store.setForceLogin(value);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   String _permissionsLabel(LocalProfile profile) {
     if (profile.admin) return '管理员 · 全部权限';
     final sources = profile.sources
@@ -71,14 +159,48 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           child: ListView(
             padding: const EdgeInsets.all(20),
             children: [
-              Text(
-                widget.locked
-                    ? '选择用户并输入密码'
-                    : '当前用户：${widget.store.profile.name}',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              const Text('各用户的追剧和观看记录独立保存，下载文件由本机共享。'),
+              if (widget.store.configurationError != null) ...[
+                Text('需要恢复本地配置', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                Text(widget.store.configurationError!),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _busy ? null : () => _recover(),
+                  icon: const Icon(Icons.restore_rounded),
+                  label: const Text('从备份恢复'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy ? null : () => _recover(export: true),
+                  child: const Text('导出原始配置'),
+                ),
+                TextButton(
+                  onPressed: _busy ? null : () => _recover(reload: true),
+                  child: const Text('重新读取配置'),
+                ),
+              ] else ...[
+                Text(
+                  widget.locked
+                      ? '选择用户并输入密码'
+                      : '当前用户：${widget.store.profile.name}',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                const Text('各用户的追剧和观看记录独立保存，下载文件由本机共享。'),
+                if (!widget.store.locked && widget.store.profile.admin) ...[
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('启动时需要登录'),
+                    subtitle: Text(
+                      widget.store.forceLogin
+                          ? '每次打开应用先解锁当前受保护用户'
+                          : '保留密码，仅切换用户或手动锁定时验证',
+                    ),
+                    value: widget.store.forceLogin,
+                    onChanged: _busy ? null : _setForceLogin,
+                  ),
+                ],
+              ],
               if (_busy)
                 const Padding(
                   padding: EdgeInsets.all(16),
@@ -95,7 +217,10 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                   ),
                 ),
               const SizedBox(height: 16),
-              for (final profile in widget.store.profiles)
+              for (final profile
+                  in widget.store.configurationError == null
+                      ? widget.store.profiles
+                      : <LocalProfile>[])
                 Card(
                   child: ListTile(
                     leading: Icon(

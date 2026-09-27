@@ -26,18 +26,20 @@ void main() {
       final local = await store();
       await tester.pumpWidget(DuanjuApp(repository: repository, store: local));
       await tester.pumpAndSettle();
-      expect(find.text('VIP：隐藏'), findsNothing);
+      expect(find.byTooltip('VIP：隐藏'), findsNothing);
       expect(find.text('测试短剧'), findsOneWidget);
       if (allSourcesEnabled) {
+        await tester.tap(find.byKey(const ValueKey('source-switch')));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('黄豆'));
         await tester.pumpAndSettle();
         expect(find.text('会员测试剧'), findsNothing);
-        expect(find.text('VIP：隐藏'), findsOneWidget);
-        await tester.tap(find.text('VIP：隐藏'));
+        expect(find.byTooltip('VIP：隐藏'), findsOneWidget);
+        await tester.tap(find.byTooltip('VIP：隐藏'));
         await tester.pumpAndSettle();
-        expect(find.text('VIP：显示'), findsOneWidget);
+        expect(find.byTooltip('VIP：显示'), findsOneWidget);
         expect(find.text('会员测试剧'), findsOneWidget);
-        await tester.tap(find.text('VIP：显示'));
+        await tester.tap(find.byTooltip('VIP：显示'));
         await tester.pumpAndSettle();
       } else {
         expect(find.text('黄豆'), findsNothing);
@@ -97,7 +99,17 @@ void main() {
   ) async {
     final repository = FixtureRepository();
     repository.cachedPages['hongguo'] = CatalogPage(
-      [FixtureRepository.free],
+      [
+        FixtureRepository.free,
+        for (var index = 0; index < 30; index++)
+          Drama(
+            id: 'hongguo:cached-$index',
+            source: 'hongguo',
+            title: '缓存短剧$index',
+            episodes: 1,
+            category: '合成数据',
+          ),
+      ],
       fresh: true,
       page: 3,
       hasMore: true,
@@ -108,18 +120,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('测试短剧'), findsOneWidget);
     expect(repository.requests, isEmpty);
-    await tester.scrollUntilVisible(
-      find.text('加载更多'),
-      200,
-      scrollable: find.descendant(
-        of: find.byType(CustomScrollView),
-        matching: find.byType(Scrollable),
-      ),
-    );
-    await tester.tap(find.text('加载更多'));
+    final scrollable = find.byType(CustomScrollView);
+    for (var i = 0; i < 4 && repository.pages.isEmpty; i++) {
+      await tester.drag(scrollable, const Offset(0, -900));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+    }
     await tester.pumpAndSettle();
     expect(repository.pages, [4]);
-    await tester.tap(find.byTooltip('更新当前站源'));
+    await tester.tap(find.byKey(const ValueKey('catalog-refresh')));
     await tester.pumpAndSettle();
     expect(repository.pages, [4, 1]);
     expect(repository.forced, [false, true]);
@@ -136,7 +145,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('测试短剧'), findsOneWidget);
-    expect(find.text('合成网络错误'), findsOneWidget);
+    expect(find.text('合成网络错误'), findsNothing);
     expect(find.text('暂时无法加载'), findsNothing);
     expect(repository.requests, ['hongguo']);
     expect(tester.takeException(), isNull);
